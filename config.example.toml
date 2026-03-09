@@ -1,0 +1,14 @@
+[pco]
+app_id = "your_pco_app_id_here"
+secret = "your_pco_secret_here"
+
+# Folder ID — service types are discovered automatically at startup
+# Get folder IDs from: https://api.planningcenteronline.com/services/v2/folders
+folder_id = "your_folder_id_here"
+
+[obs]
+enabled = true
+host = "localhost"
+port = 4455
+password = ""            # Leave empty if no password set in OBS
+update_interval_ms = 1000 # How often to push updates (milliseconds)
