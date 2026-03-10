@@ -92,14 +92,15 @@ def _make_not_live_response():
     }
 
 
-def _make_manager(candidates=None):
+def _make_manager(candidates=None, team_enabled=False):
     """Create a PlanManager with mocked client and no background thread."""
     mock_client = MagicMock()
     mock_client.get_service_types.return_value = []
     mock_client.get_next_plans_for_types.return_value = candidates or []
     mock_client.populate_plan_details.return_value = None
 
-    manager = PlanManager(mock_client, ["393738"], start_thread=False)
+    manager = PlanManager(mock_client, ["393738"], start_thread=False,
+                          team_enabled=team_enabled, team_cache_dir="")
 
     if candidates:
         manager._candidates = candidates
@@ -424,3 +425,134 @@ class TestPopulatePlanDetails:
         with patch.object(client, '_populate_items') as mock_pop:
             client.populate_plan_details(svc)
         mock_pop.assert_called_once_with(svc)
+
+
+# ── 8. Team members ──────────────────────────────────────────────────────
+
+
+class TestTeamMembers:
+
+    def test_team_fetched_on_scanning_to_tracking(self):
+        """Team members are fetched when transitioning to TRACKING."""
+        svc = _make_service()
+        manager = _make_manager(candidates=[svc], team_enabled=True)
+        manager._state = SyncState.SCANNING
+
+        live_resp = _make_live_response("cit1", "item1", "2026-02-08T10:30:00Z")
+        manager.client.get_live_status.return_value = live_resp
+        manager.client.get_team_members.return_value = [
+            {"person_id": "p1", "name": "Alice", "position": "Vocals",
+             "team_name": "Worship", "photo_url": None, "status": "C"},
+        ]
+
+        now = datetime.now(timezone.utc)
+        manager._sync_scanning(now)
+
+        assert manager.state == SyncState.TRACKING
+        assert len(manager.team_members) == 1
+        assert manager.team_members[0].name == "Alice"
+
+    def test_team_not_refetched_for_same_plan(self):
+        """If plan key matches, team is not refetched."""
+        svc = _make_service()
+        manager = _make_manager(candidates=[svc], team_enabled=True)
+        manager._state = SyncState.TRACKING
+        manager._tracked_plan_key = (svc.type_id, svc.id)
+        manager.current_plan = svc
+        manager._team_plan_key = (svc.type_id, svc.id)
+        manager._team_members = []
+
+        manager._fetch_team_for_plan(svc)
+        manager.client.get_team_members.assert_not_called()
+
+    def test_team_cleared_when_not_live(self):
+        """Team members cleared when tracked plan is no longer live."""
+        svc = _make_service()
+        other = _make_service(plan_id="200", type_id="772177")
+        manager = _make_manager(candidates=[svc, other], team_enabled=True)
+        manager._state = SyncState.TRACKING
+        manager._tracked_plan_key = (svc.type_id, svc.id)
+        manager.current_plan = svc
+        manager._last_full_scan = 9999999999
+        manager._team_members = [MagicMock()]
+        manager._team_plan_key = (svc.type_id, svc.id)
+
+        manager.client.get_live_status.return_value = _make_not_live_response()
+        manager.client.get_team_members.return_value = []
+
+        now = datetime.now(timezone.utc)
+        manager._sync_tracking(now)
+
+        assert manager.team_members == []
+        assert manager._team_plan_key is None
+
+    def test_team_refetched_on_plan_switch(self):
+        """Team members refetched when switching to a newer plan."""
+        old_svc = _make_service(plan_id="100", type_id="393738", title="Old")
+        new_svc = _make_service(plan_id="200", type_id="772177", title="New")
+
+        manager = _make_manager(candidates=[old_svc, new_svc], team_enabled=True)
+        manager._state = SyncState.TRACKING
+        manager._tracked_plan_key = (old_svc.type_id, old_svc.id)
+        manager.current_plan = old_svc
+        manager._last_full_scan = 0  # force full scan
+        manager._team_plan_key = (old_svc.type_id, old_svc.id)
+        manager._team_members = []
+
+        old_live = _make_live_response("cit1", "item1", "2026-02-08T10:30:00Z")
+        new_live = _make_live_response("cit2", "item1", "2026-02-08T15:45:00Z")
+
+        call_count = 0
+        def get_live_side_effect(type_id, plan_id):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return old_live
+            if plan_id == "100":
+                return old_live
+            elif plan_id == "200":
+                return new_live
+            return _make_not_live_response()
+
+        manager.client.get_live_status.side_effect = get_live_side_effect
+        manager.client.get_team_members.return_value = [
+            {"person_id": "p2", "name": "Bob", "position": "Drums",
+             "team_name": "Worship", "photo_url": None, "status": "C"},
+        ]
+
+        now = datetime.now(timezone.utc)
+        manager._sync_tracking(now)
+
+        assert manager._team_plan_key == ("772177", "200")
+        assert len(manager.team_members) == 1
+
+    def test_team_fetch_failure_doesnt_crash(self):
+        """If team fetch fails, timer continues normally."""
+        svc = _make_service()
+        manager = _make_manager(candidates=[svc], team_enabled=True)
+        manager._state = SyncState.SCANNING
+
+        live_resp = _make_live_response("cit1", "item1", "2026-02-08T10:30:00Z")
+        manager.client.get_live_status.return_value = live_resp
+        manager.client.get_team_members.side_effect = Exception("API error")
+
+        now = datetime.now(timezone.utc)
+        manager._sync_scanning(now)
+
+        assert manager.state == SyncState.TRACKING
+        assert manager.team_members == []
+
+    def test_team_disabled(self):
+        """When team_enabled=False, no team fetch occurs."""
+        svc = _make_service()
+        manager = _make_manager(candidates=[svc], team_enabled=False)
+        manager._state = SyncState.SCANNING
+
+        live_resp = _make_live_response("cit1", "item1", "2026-02-08T10:30:00Z")
+        manager.client.get_live_status.return_value = live_resp
+
+        now = datetime.now(timezone.utc)
+        manager._sync_scanning(now)
+
+        manager.client.get_team_members.assert_not_called()
+        assert manager.team_members == []

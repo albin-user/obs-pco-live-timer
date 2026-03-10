@@ -3,6 +3,7 @@
 All tests mock requests.get to avoid real API calls.
 """
 
+import os
 from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock
 
@@ -332,6 +333,13 @@ class TestGetNextPlansForTypes:
         # Each type returns one plan
         assert len(plans) == 2
 
+    @patch("src.pco_client.requests.get")
+    def test_empty_response(self, mock_get):
+        mock_get.return_value = _mock_response(200, {"data": []})
+        client = _make_client()
+        plans = client.get_next_plans_for_types(["st1"])
+        assert len(plans) == 0
+
     @patch("src.pco_client._time.sleep")
     @patch("src.pco_client.requests.get")
     def test_handles_failure_for_one_type(self, mock_get, mock_sleep):
@@ -361,3 +369,247 @@ class TestGetNextPlansForTypes:
         plans = client.get_next_plans_for_types(["st1", "st2"])
         assert len(plans) == 1
         assert plans[0].id == "p2"
+
+
+# ── get_team_members() ──────────────────────────────────────────────
+
+
+def _team_members_response():
+    """Build a realistic team_members?include=person,team response."""
+    return {
+        "data": [
+            {
+                "id": "tm1",
+                "type": "TeamMember",
+                "attributes": {
+                    "name": "Alice Smith",
+                    "team_position_name": "Worship Leader",
+                    "status": "C",
+                    "photo_thumbnail": None,
+                },
+                "relationships": {
+                    "person": {"data": {"type": "Person", "id": "p100"}},
+                    "team": {"data": {"type": "Team", "id": "t1"}},
+                },
+            },
+            {
+                "id": "tm2",
+                "type": "TeamMember",
+                "attributes": {
+                    "name": "Bob Jones",
+                    "team_position_name": "Drums",
+                    "status": "U",
+                    "photo_thumbnail": "https://cdn.example.com/bob-attr.jpg",
+                },
+                "relationships": {
+                    "person": {"data": {"type": "Person", "id": "p200"}},
+                    "team": {"data": {"type": "Team", "id": "t1"}},
+                },
+            },
+        ],
+        "included": [
+            {
+                "type": "Person",
+                "id": "p100",
+                "attributes": {
+                    "photo_thumbnail_url": "https://cdn.example.com/alice.jpg",
+                },
+            },
+            {
+                "type": "Person",
+                "id": "p200",
+                "attributes": {
+                    "photo_thumbnail_url": "https://cdn.example.com/bob.jpg",
+                },
+            },
+            {
+                "type": "Team",
+                "id": "t1",
+                "attributes": {"name": "Worship Team"},
+            },
+        ],
+        "links": {},
+    }
+
+
+class TestGetTeamMembers:
+
+    @patch("src.pco_client.requests.get")
+    def test_parses_response(self, mock_get):
+        mock_get.return_value = _mock_response(200, _team_members_response())
+        client = _make_client()
+        members = client.get_team_members("st1", "plan1")
+        assert len(members) == 2
+        alice = members[0]
+        assert alice["person_id"] == "p100"
+        assert alice["name"] == "Alice Smith"
+        assert alice["position"] == "Worship Leader"
+        assert alice["team_name"] == "Worship Team"
+        assert alice["status"] == "C"
+
+    @patch("src.pco_client.requests.get")
+    def test_photo_from_included_person(self, mock_get):
+        mock_get.return_value = _mock_response(200, _team_members_response())
+        client = _make_client()
+        members = client.get_team_members("st1", "plan1")
+        assert members[0]["photo_url"] == "https://cdn.example.com/alice.jpg"
+
+    @patch("src.pco_client.requests.get")
+    def test_photo_fallback_to_attribute(self, mock_get):
+        """When Person has no photo, falls back to team_member attribute."""
+        resp = _team_members_response()
+        # Remove person p200 photo
+        for inc in resp["included"]:
+            if inc["id"] == "p200":
+                inc["attributes"]["photo_thumbnail_url"] = None
+        mock_get.return_value = _mock_response(200, resp)
+        client = _make_client()
+        members = client.get_team_members("st1", "plan1")
+        bob = members[1]
+        assert bob["photo_url"] == "https://cdn.example.com/bob-attr.jpg"
+
+    @patch("src.pco_client.requests.get")
+    def test_empty_data(self, mock_get):
+        mock_get.return_value = _mock_response(200, {"data": [], "included": [], "links": {}})
+        client = _make_client()
+        members = client.get_team_members("st1", "plan1")
+        assert members == []
+
+    @patch("src.pco_client.requests.get")
+    def test_missing_data_key(self, mock_get):
+        mock_get.return_value = _mock_response(200, {})
+        client = _make_client()
+        members = client.get_team_members("st1", "plan1")
+        assert members == []
+
+    @patch("src.pco_client.requests.get")
+    def test_team_name_from_included(self, mock_get):
+        mock_get.return_value = _mock_response(200, _team_members_response())
+        client = _make_client()
+        members = client.get_team_members("st1", "plan1")
+        assert all(m["team_name"] == "Worship Team" for m in members)
+
+    @patch("src.pco_client._time.sleep")
+    @patch("src.pco_client.requests.get")
+    def test_error_returns_empty(self, mock_get, mock_sleep):
+        mock_get.side_effect = requests.exceptions.ConnectionError("down")
+        client = _make_client()
+        members = client.get_team_members("st1", "plan1")
+        assert members == []
+
+    @patch("src.pco_client.requests.get")
+    def test_pagination(self, mock_get):
+        page1 = _team_members_response()
+        page1["links"]["next"] = "https://api.planningcenteronline.com/services/v2/service_types/st1/plans/plan1/team_members?offset=2"
+        page2 = {
+            "data": [
+                {
+                    "id": "tm3",
+                    "type": "TeamMember",
+                    "attributes": {
+                        "name": "Carol Davis",
+                        "team_position_name": "Keys",
+                        "status": "C",
+                    },
+                    "relationships": {
+                        "person": {"data": {"type": "Person", "id": "p300"}},
+                        "team": {"data": {"type": "Team", "id": "t1"}},
+                    },
+                },
+            ],
+            "included": [
+                {"type": "Person", "id": "p300", "attributes": {"photo_thumbnail_url": None}},
+                {"type": "Team", "id": "t1", "attributes": {"name": "Worship Team"}},
+            ],
+            "links": {},
+        }
+        mock_get.side_effect = [
+            _mock_response(200, page1),
+            _mock_response(200, page2),
+        ]
+        client = _make_client()
+        members = client.get_team_members("st1", "plan1")
+        assert len(members) == 3
+        assert members[2]["name"] == "Carol Davis"
+
+    @patch("src.pco_client.requests.get")
+    def test_filters_declined_members(self, mock_get):
+        """Members with status 'D' are excluded."""
+        resp = _team_members_response()
+        # Add a declined member
+        resp["data"].append({
+            "id": "tm3",
+            "type": "TeamMember",
+            "attributes": {
+                "name": "Declined Dan",
+                "team_position_name": "Keys",
+                "status": "D",
+            },
+            "relationships": {
+                "person": {"data": {"type": "Person", "id": "p300"}},
+                "team": {"data": {"type": "Team", "id": "t1"}},
+            },
+        })
+        resp["included"].append({
+            "type": "Person", "id": "p300",
+            "attributes": {"photo_thumbnail_url": None},
+        })
+        mock_get.return_value = _mock_response(200, resp)
+        client = _make_client()
+        members = client.get_team_members("st1", "plan1")
+        assert len(members) == 2
+        assert all(m["status"] != "D" for m in members)
+
+    @patch("src.pco_client.requests.get")
+    def test_skips_entry_without_person_id(self, mock_get):
+        resp = {
+            "data": [
+                {
+                    "id": "tm1",
+                    "attributes": {"name": "Ghost", "team_position_name": "X", "status": "C"},
+                    "relationships": {"person": {"data": None}, "team": {"data": None}},
+                },
+            ],
+            "included": [],
+            "links": {},
+        }
+        mock_get.return_value = _mock_response(200, resp)
+        client = _make_client()
+        members = client.get_team_members("st1", "plan1")
+        assert members == []
+
+
+# ── download_photo() ────────────────────────────────────────────────
+
+
+class TestDownloadPhoto:
+
+    @patch("src.pco_client.requests.get")
+    def test_successful_download(self, mock_get, tmp_path):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.content = b"\xff\xd8\xff\xe0fake-jpeg"
+        mock_get.return_value = resp
+
+        client = _make_client()
+        path = str(tmp_path / "photo.jpg")
+        result = client.download_photo("https://example.com/photo.jpg", path)
+        assert result is True
+        assert os.path.exists(path)
+
+    @patch("src.pco_client.requests.get")
+    def test_non_200_returns_false(self, mock_get):
+        resp = MagicMock()
+        resp.status_code = 404
+        mock_get.return_value = resp
+
+        client = _make_client()
+        result = client.download_photo("https://example.com/nope.jpg", "/tmp/nope.jpg")
+        assert result is False
+
+    @patch("src.pco_client.requests.get")
+    def test_exception_returns_false(self, mock_get):
+        mock_get.side_effect = requests.exceptions.Timeout("timed out")
+        client = _make_client()
+        result = client.download_photo("https://example.com/photo.jpg", "/tmp/photo.jpg")
+        assert result is False

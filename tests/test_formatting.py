@@ -62,13 +62,17 @@ class TestFormatEndTime:
 # ── build_timer_response() no data ───────────────────────────────────
 
 
-def _make_mock_manager(plan=None, tick_result=None):
+def _make_mock_manager(plan=None, tick_result=None, team_members=None,
+                       team_slots=None, team_placeholder_photo=""):
     """Create a mock PlanManager for build_timer_response tests."""
     import threading
     manager = MagicMock()
     manager._lock = threading.RLock()
     manager.current_plan = plan
     manager.tick.return_value = tick_result
+    manager._team_members = team_members or []
+    manager._team_slots = team_slots or []
+    manager._team_placeholder_photo = team_placeholder_photo
     return manager
 
 
@@ -324,3 +328,63 @@ class TestBuildTimerResponseSongBlock:
         desc = resp["current_item"]["description"]
         assert "Key: G" in desc
         assert "Acoustic" in desc
+
+
+# ── build_timer_response() team members ─────────────────────────────
+
+
+class TestBuildTimerResponseTeam:
+
+    def test_team_members_key_in_response(self):
+        from src.models import TeamMember
+        plan = _make_full_plan()
+        result = _make_full_result()
+        members = [
+            TeamMember(person_id="p1", name="Alice Smith", position="Vocals",
+                       team_name="Worship", status="C", photo_path="/tmp/p1.jpg"),
+        ]
+        manager = _make_mock_manager(
+            plan=plan, tick_result=result, team_members=members,
+            team_slots=["Vocals"],
+        )
+        resp = build_timer_response(manager)
+        assert "team_members" in resp
+        assert len(resp["team_members"]) == 1
+        assert resp["team_members"][0]["name"] == "Alice"
+        assert resp["team_members"][0]["name_source"] == "PCO Position Vocals 1 Name"
+
+    def test_team_members_empty_when_no_slots(self):
+        manager = _make_mock_manager(plan=None, tick_result=None)
+        resp = build_timer_response(manager)
+        assert resp["team_members"] == []
+
+    def test_team_members_empty_when_no_team(self):
+        plan = _make_full_plan()
+        result = _make_full_result()
+        manager = _make_mock_manager(plan=plan, tick_result=result, team_members=[])
+        resp = build_timer_response(manager)
+        assert resp["team_members"] == []
+
+    def test_placeholders_when_slots_but_no_members(self):
+        plan = _make_full_plan()
+        result = _make_full_result()
+        manager = _make_mock_manager(
+            plan=plan, tick_result=result, team_members=[],
+            team_slots=["Drums", "Keys"],
+            team_placeholder_photo="/placeholder.png",
+        )
+        resp = build_timer_response(manager)
+        assert len(resp["team_members"]) == 2
+        assert resp["team_members"][0]["position"] == "Empty"
+        assert resp["team_members"][0]["photo_path"] == "/placeholder.png"
+        assert resp["team_members"][1]["name_source"] == "PCO Position Keys 1 Name"
+
+    def test_team_in_no_data_response_with_slots(self):
+        """Even with no plan data, slots produce placeholder entries."""
+        manager = _make_mock_manager(
+            plan=None, tick_result=None,
+            team_slots=["Vocals"], team_placeholder_photo="/p.png",
+        )
+        resp = build_timer_response(manager)
+        assert len(resp["team_members"]) == 1
+        assert resp["team_members"][0]["position"] == "Empty"

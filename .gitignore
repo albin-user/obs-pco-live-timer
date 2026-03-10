@@ -51,6 +51,9 @@ config.json
 current_plan.txt
 *.bak
 
+# Team member photo cache
+.cache/
+
 # OS
 .DS_Store
 Thumbs.db

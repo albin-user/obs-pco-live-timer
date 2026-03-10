@@ -12,3 +12,16 @@ host = "localhost"
 port = 4455
 password = ""            # Leave empty if no password set in OBS
 update_interval_ms = 1000 # How often to push updates (milliseconds)
+
+[team]
+enabled = true
+photo_cache_dir = ""           # Default: ~/.cache/obs-pco-live-timer/photos/
+placeholder_photo = ""         # Custom placeholder avatar (auto-generated if empty)
+slots = [
+    "Worship Leader",
+    "Vocalist",
+    "Vocalist",
+    "Drums",
+    "Keys",
+    "Sound Engineer",
+]

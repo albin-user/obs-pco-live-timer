@@ -8,6 +8,7 @@ from typing import Dict, Any
 
 from .manager import PlanManager
 from .song_blocks import get_song_block_for_item
+from .team_members import build_team_response
 
 
 def format_seconds(seconds: float) -> str:
@@ -30,6 +31,14 @@ def build_timer_response(manager: PlanManager) -> Dict[str, Any]:
     with manager._lock:
         result = manager.tick()
         plan = manager.current_plan
+        team_members = list(manager._team_members)
+        team_slots = list(manager._team_slots)
+        team_placeholder_photo = manager._team_placeholder_photo
+
+    team_data = (
+        build_team_response(team_members, team_slots, team_placeholder_photo)
+        if team_slots else []
+    )
 
     # Base response for no data
     if not result or not plan:
@@ -44,7 +53,8 @@ def build_timer_response(manager: PlanManager) -> Dict[str, Any]:
             "service_end": None,
             "progress": None,
             "message": result.message if result else "Waiting for service data...",
-            "timestamp": int(time.time())
+            "timestamp": int(time.time()),
+            "team_members": team_data,
         }
 
     # Build current item info
@@ -150,5 +160,6 @@ def build_timer_response(manager: PlanManager) -> Dict[str, Any]:
         "service_end": service_end_data,
         "progress": progress_data,
         "message": result.message,
-        "timestamp": int(time.time())
+        "timestamp": int(time.time()),
+        "team_members": team_data,
     }

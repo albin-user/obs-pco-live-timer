@@ -88,6 +88,102 @@ class PCOClient:
         params = {'include': 'current_item_time,next_item_time,items'}
         return self._get(endpoint, params=params)
 
+    def get_team_members(self, service_type_id: str, plan_id: str) -> List[Dict[str, Any]]:
+        """
+        Fetches team members for a plan with included person and team data.
+        Returns a list of dicts: {person_id, name, position, team_name, photo_url, status}.
+        """
+        try:
+            endpoint = f"/service_types/{service_type_id}/plans/{plan_id}/team_members"
+            params = {"include": "person,team", "per_page": 100}
+
+            all_data = []
+            all_included = []
+
+            while endpoint:
+                raw = self._get(endpoint, params=params)
+                params = None  # only on first request
+                all_data.extend(raw.get("data", []))
+                all_included.extend(raw.get("included", []))
+
+                next_link = raw.get("links", {}).get("next")
+                if next_link:
+                    if next_link.startswith(self.base_url):
+                        endpoint = next_link[len(self.base_url):]
+                    else:
+                        endpoint = None
+                else:
+                    endpoint = None
+
+            # Index included records by (type, id)
+            included_by = {}
+            for inc in all_included:
+                key = (inc.get("type"), inc.get("id"))
+                if key[0] and key[1]:
+                    included_by[key] = inc
+
+            members = []
+            for entry in all_data:
+                attrs = entry.get("attributes", {})
+                rels = entry.get("relationships", {})
+
+                person_rel = rels.get("person", {}).get("data", {})
+                person_id = person_rel.get("id") if isinstance(person_rel, dict) else None
+                if not person_id:
+                    continue
+
+                name = attrs.get("name", "")
+                position = attrs.get("team_position_name", "")
+                status = attrs.get("status", "U")
+
+                if status == "D":
+                    continue
+
+                # Photo: try included Person first, then team_member attribute
+                photo_url = None
+                person_inc = included_by.get(("Person", person_id))
+                if person_inc:
+                    photo_url = person_inc.get("attributes", {}).get("photo_thumbnail_url")
+                if not photo_url:
+                    photo_url = attrs.get("photo_thumbnail")
+
+                # Team name from included Team
+                team_name = ""
+                team_rel = rels.get("team", {}).get("data", {})
+                team_id = team_rel.get("id") if isinstance(team_rel, dict) else None
+                if team_id:
+                    team_inc = included_by.get(("Team", team_id))
+                    if team_inc:
+                        team_name = team_inc.get("attributes", {}).get("name", "")
+
+                members.append({
+                    "person_id": person_id,
+                    "name": name,
+                    "position": position,
+                    "team_name": team_name,
+                    "photo_url": photo_url,
+                    "status": status,
+                })
+
+            return members
+        except Exception as e:
+            logger.warning("Failed to fetch team members for plan %s: %s", plan_id, e)
+            return []
+
+    def download_photo(self, url: str, save_path: str) -> bool:
+        """Download a photo from a URL to a local path. Returns True on success."""
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                with open(save_path, "wb") as f:
+                    f.write(response.content)
+                return True
+            logger.warning("Photo download returned status %d for %s", response.status_code, url)
+            return False
+        except Exception as e:
+            logger.warning("Failed to download photo from %s: %s", url, e)
+            return False
+
     def get_item_notes(self, service_type_id: str, plan_id: str, item_id: str) -> List[Dict[str, str]]:
         """
         Fetches production notes for a specific item.

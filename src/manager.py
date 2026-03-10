@@ -1,11 +1,13 @@
 import logging
+import os
 import time
 import threading
 from datetime import datetime, timezone, timedelta
 from enum import Enum, auto
 from typing import List, Optional, Dict
 from .pco_client import PCOClient
-from .models import Service, TimerResult
+from .models import Service, TimerResult, TeamMember
+from .team_members import fetch_and_cache_team
 from .timing_core import calculate_timers
 import dateutil.parser
 
@@ -24,7 +26,10 @@ class PlanManager:
     TRACKING_POLL_INTERVAL = 3
     TRACKING_FULL_SCAN_INTERVAL = 60
 
-    def __init__(self, client: PCOClient, target_service_type_ids: List[str], start_thread: bool = True):
+    def __init__(self, client: PCOClient, target_service_type_ids: List[str],
+                 start_thread: bool = True, team_enabled: bool = True,
+                 team_cache_dir: str = "", team_slots: list = None,
+                 team_placeholder_photo: str = ""):
         self.client = client
         self.target_ids = target_service_type_ids
 
@@ -41,6 +46,16 @@ class PlanManager:
 
         # Cache for service type names: {type_id: name}
         self._service_type_names: Dict[str, str] = {}
+
+        # Team members
+        self._team_members: List[TeamMember] = []
+        self._team_plan_key: Optional[tuple] = None
+        self._team_enabled = team_enabled
+        self._team_cache_dir = team_cache_dir
+        self._team_slots: List[str] = team_slots or []
+        self._team_placeholder_photo: str = team_placeholder_photo
+        if team_enabled and team_cache_dir:
+            os.makedirs(team_cache_dir, exist_ok=True)
 
         # USE RLock (Recursive Lock) to prevent deadlocks
         self._lock = threading.RLock()
@@ -262,6 +277,7 @@ class PlanManager:
                 self.last_poll_time = time.monotonic()
                 self.last_error = None
             logger.info("TRACKING plan: %s", best_plan.plan_title)
+            self._fetch_team_for_plan(best_plan)
         else:
             # Nothing live — pick closest upcoming plan via smart_distance
             best_upcoming = self._pick_nearest_upcoming(now)
@@ -291,6 +307,8 @@ class PlanManager:
                 self.current_plan = plan  # keep showing it while scanning
                 self._tracked_plan_key = None
                 self._state = SyncState.SCANNING
+                self._team_members = []
+                self._team_plan_key = None
             # Immediately scan to see if another plan took over
             self._sync_scanning(now)
             return
@@ -312,6 +330,7 @@ class PlanManager:
                         self.current_plan = better
                         self._tracked_plan_key = (better.type_id, better.id)
                     logger.info("Switched to newer live plan: %s", better.plan_title)
+                    self._fetch_team_for_plan(better)
 
         with self._lock:
             self.last_poll_time = time.monotonic()
@@ -361,6 +380,28 @@ class PlanManager:
             logger.info("Cached %d service type names", len(self._service_type_names))
         except Exception as e:
             logger.warning("Failed to fetch service type names: %s", e)
+
+    @property
+    def team_members(self) -> List[TeamMember]:
+        with self._lock:
+            return list(self._team_members)
+
+    def _fetch_team_for_plan(self, plan: Service):
+        """Fetch team members for a plan (once per plan)."""
+        if not self._team_enabled:
+            return
+        if self._team_plan_key == (plan.type_id, plan.id):
+            return
+        try:
+            members = fetch_and_cache_team(
+                self.client, plan.type_id, plan.id, self._team_cache_dir
+            )
+            with self._lock:
+                self._team_members = members
+                self._team_plan_key = (plan.type_id, plan.id)
+            logger.info("Fetched %d team members for plan %s", len(members), plan.plan_title)
+        except Exception as e:
+            logger.warning("Failed to fetch team for plan %s: %s", plan.plan_title, e)
 
     def stop(self):
         self._stop_event.set()

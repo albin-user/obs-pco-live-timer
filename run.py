@@ -6,6 +6,7 @@ Starts the PCO Live Timer and pushes data to OBS via WebSocket.
 Configure credentials in config.toml (see config.example.toml).
 """
 import logging
+import os
 import signal
 import sys
 import threading
@@ -59,6 +60,15 @@ def load_config():
             config["obs"]["password"] = obs.get("password", "")
             config["obs"]["update_interval_ms"] = obs.get("update_interval_ms", 1000)
 
+            # Team settings
+            team = toml_config.get("team", {})
+            config["team"] = {
+                "enabled": team.get("enabled", True),
+                "photo_cache_dir": team.get("photo_cache_dir", ""),
+                "placeholder_photo": team.get("placeholder_photo", ""),
+                "slots": team.get("slots", []),
+            }
+
             logger.info("Loaded config from %s", config_path)
             return config
         except ImportError:
@@ -107,6 +117,35 @@ def validate_config(config):
     return True
 
 
+def _generate_placeholder_png(path: str):
+    """Generate a 128x128 dark gray (#2d2d2d) PNG using only stdlib."""
+    import struct
+    import zlib
+
+    width, height = 128, 128
+    r, g, b = 0x2D, 0x2D, 0x2D
+
+    # Build raw image data: each row has a filter byte (0) + RGB pixels
+    raw_row = b"\x00" + bytes([r, g, b]) * width
+    raw_data = raw_row * height
+
+    def _chunk(chunk_type: bytes, data: bytes) -> bytes:
+        c = chunk_type + data
+        crc = struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+        return struct.pack(">I", len(data)) + c + crc
+
+    ihdr_data = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    idat_data = zlib.compress(raw_data)
+
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(_chunk(b"IHDR", ihdr_data))
+        f.write(_chunk(b"IDAT", idat_data))
+        f.write(_chunk(b"IEND", b""))
+
+    logger.info("Generated placeholder avatar: %s", path)
+
+
 def main():
     logging.basicConfig(
         level=logging.INFO,
@@ -153,11 +192,29 @@ def main():
     for st in service_types:
         logger.info("  - %s (ID: %s)", st['name'], st['id'])
 
+    # Team config
+    team_config = config.get("team", {})
+    team_cache_dir = team_config.get("photo_cache_dir", "") or os.path.join(
+        os.path.expanduser("~"), ".cache", "obs-pco-live-timer", "photos"
+    )
+
+    # Resolve placeholder photo path
+    placeholder_photo_path = team_config.get("placeholder_photo", "")
+    if not placeholder_photo_path and team_config.get("enabled", True):
+        os.makedirs(team_cache_dir, exist_ok=True)
+        placeholder_photo_path = os.path.join(team_cache_dir, "placeholder_avatar.png")
+        if not os.path.exists(placeholder_photo_path):
+            _generate_placeholder_png(placeholder_photo_path)
+
     # Create plan manager (starts background sync)
     manager = PlanManager(
         client=client,
         target_service_type_ids=service_type_ids,
-        start_thread=True
+        start_thread=True,
+        team_enabled=team_config.get("enabled", True),
+        team_cache_dir=team_cache_dir,
+        team_slots=team_config.get("slots", []),
+        team_placeholder_photo=placeholder_photo_path,
     )
 
     # Start OBS WebSocket pusher if enabled
@@ -182,6 +239,8 @@ def main():
                      obs_config['host'], obs_config['port'], obs_config['update_interval_ms'])
     else:
         logger.info("OBS WebSocket: disabled (set obs.enabled = true in config.toml)")
+    if team_config.get("enabled", True):
+        logger.info("Team members: enabled (photos: %s)", team_cache_dir)
     logger.info("Press Ctrl+C to stop")
 
     # Shutdown handler for SIGTERM (systemd) and KeyboardInterrupt (Ctrl+C)

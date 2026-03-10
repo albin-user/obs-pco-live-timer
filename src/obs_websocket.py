@@ -164,6 +164,12 @@ class OBSTextPusher:
         else:
             self._set_text("PCO Service End", "")
 
+        # Team members
+        for member in data.get("team_members", []):
+            self._set_text(member["name_source"], member["name"])
+            self._set_text(member["position_source"], member["position"])
+            self._set_image(member["photo_source"], member.get("photo_path", ""))
+
     def _set_text(self, source_name: str, text: str, color: Optional[int] = None):
         """Push text (and optional color) to a named OBS text source."""
         if not self._ws or source_name in self._missing_sources:
@@ -179,6 +185,22 @@ class OBSTextPusher:
         except Exception as e:
             err_msg = str(e)
             # OBS returns error 600 when source doesn't exist
+            if "600" in err_msg or "No source" in err_msg:
+                self._missing_sources.add(source_name)
+                logger.info("Source '%s' not found in OBS, skipping", source_name)
+            else:
+                raise
+
+    def _set_image(self, source_name: str, file_path: str):
+        """Push a file path to a named OBS image source."""
+        if not self._ws or source_name in self._missing_sources:
+            return
+
+        settings = {"file": file_path}
+        try:
+            self._ws.set_input_settings(source_name, settings, overlay=True)
+        except Exception as e:
+            err_msg = str(e)
             if "600" in err_msg or "No source" in err_msg:
                 self._missing_sources.add(source_name)
                 logger.info("Source '%s' not found in OBS, skipping", source_name)

@@ -236,3 +236,135 @@ class TestConnection:
         pusher = _make_pusher()
         pusher.stop()
         assert pusher._stop_event.is_set()
+
+
+# ── _set_image() ────────────────────────────────────────────────────
+
+
+class TestSetImage:
+
+    def test_pushes_file_setting(self):
+        pusher = _make_pusher()
+        pusher._ws = MagicMock()
+        pusher._set_image("PCO Team Drums Photo", "/tmp/photo.jpg")
+        pusher._ws.set_input_settings.assert_called_once_with(
+            "PCO Team Drums Photo", {"file": "/tmp/photo.jpg"}, overlay=True
+        )
+
+    def test_skips_when_no_connection(self):
+        pusher = _make_pusher()
+        pusher._ws = None
+        pusher._set_image("PCO Team Drums Photo", "/tmp/photo.jpg")
+
+    def test_skips_missing_source(self):
+        pusher = _make_pusher()
+        pusher._ws = MagicMock()
+        pusher._missing_sources.add("PCO Team Drums Photo")
+        pusher._set_image("PCO Team Drums Photo", "/tmp/photo.jpg")
+        pusher._ws.set_input_settings.assert_not_called()
+
+    def test_source_not_found_adds_to_missing(self):
+        pusher = _make_pusher()
+        pusher._ws = MagicMock()
+        pusher._ws.set_input_settings.side_effect = Exception("Error code 600: Source not found")
+        pusher._set_image("PCO Team Missing Photo", "/tmp/photo.jpg")
+        assert "PCO Team Missing Photo" in pusher._missing_sources
+
+    def test_other_error_reraises(self):
+        import pytest
+        pusher = _make_pusher()
+        pusher._ws = MagicMock()
+        pusher._ws.set_input_settings.side_effect = Exception("Network timeout")
+        with pytest.raises(Exception, match="Network timeout"):
+            pusher._set_image("PCO Team Drums Photo", "/tmp/photo.jpg")
+
+
+# ── Team push in _push_all_values() ─────────────────────────────────
+
+
+class TestPushAllValuesWithTeam:
+
+    def _full_data_with_team(self):
+        return {
+            "service_type_name": "Sunday Morning",
+            "service_date": "Feb 8, 2026",
+            "plan_title": "Week 3",
+            "is_live": True,
+            "current_item": {
+                "title": "Worship",
+                "description": "",
+                "countdown_seconds": 300.0,
+                "countdown_formatted": "05:00",
+                "is_overtime": False,
+                "length_formatted": "30:00",
+            },
+            "next_item": {"title": "Sermon", "description": None, "length_formatted": "35:00"},
+            "service_end": {"status_text": "On time", "overrun_minutes": 0},
+            "progress": {"text": "1 of 2"},
+            "team_members": [
+                {
+                    "name": "Alice",
+                    "position": "Vocals",
+                    "team": "Worship",
+                    "status": "C",
+                    "name_source": "PCO Position Vocals 1 Name",
+                    "position_source": "PCO Position Vocals 1 Position",
+                    "photo_source": "PCO Position Vocals 1 Photo",
+                    "photo_path": "/tmp/p1.jpg",
+                },
+            ],
+        }
+
+    def test_pushes_team_name_and_photo(self):
+        pusher = _make_pusher()
+        pusher._ws = MagicMock()
+
+        with patch("src.obs_websocket.build_timer_response", return_value=self._full_data_with_team()):
+            pusher._push_all_values()
+
+        call_args = {
+            call[0][0]: call[0][1]
+            for call in pusher._ws.set_input_settings.call_args_list
+        }
+        assert call_args["PCO Position Vocals 1 Name"] == {"text": "Alice"}
+        assert call_args["PCO Position Vocals 1 Photo"] == {"file": "/tmp/p1.jpg"}
+
+    def test_pushes_position_text(self):
+        pusher = _make_pusher()
+        pusher._ws = MagicMock()
+
+        with patch("src.obs_websocket.build_timer_response", return_value=self._full_data_with_team()):
+            pusher._push_all_values()
+
+        call_args = {
+            call[0][0]: call[0][1]
+            for call in pusher._ws.set_input_settings.call_args_list
+        }
+        assert call_args["PCO Position Vocals 1 Position"] == {"text": "Vocals"}
+
+    def test_empty_slot_pushes_placeholder(self):
+        pusher = _make_pusher()
+        pusher._ws = MagicMock()
+
+        data = self._full_data_with_team()
+        data["team_members"].append({
+            "name": "",
+            "position": "Empty",
+            "team": "",
+            "status": "",
+            "name_source": "PCO Position Drums 1 Name",
+            "position_source": "PCO Position Drums 1 Position",
+            "photo_source": "PCO Position Drums 1 Photo",
+            "photo_path": "/tmp/placeholder.png",
+        })
+
+        with patch("src.obs_websocket.build_timer_response", return_value=data):
+            pusher._push_all_values()
+
+        call_args = {
+            call[0][0]: call[0][1]
+            for call in pusher._ws.set_input_settings.call_args_list
+        }
+        assert call_args["PCO Position Drums 1 Name"] == {"text": ""}
+        assert call_args["PCO Position Drums 1 Position"] == {"text": "Empty"}
+        assert call_args["PCO Position Drums 1 Photo"] == {"file": "/tmp/placeholder.png"}

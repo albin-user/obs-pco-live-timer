@@ -62,3 +62,14 @@ class TimerResult:
     # Optional/Default Fields
     next_item: Optional[Item] = None
     message: Optional[str] = None
+
+
+@dataclass
+class TeamMember:
+    person_id: str
+    name: str
+    position: str          # e.g. "Vocalist", "Campus Pastor"
+    team_name: str         # e.g. "Worship Team"
+    photo_url: Optional[str] = None
+    photo_path: Optional[str] = None  # local cached file
+    status: str = "U"      # C/U/D
