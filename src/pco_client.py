@@ -218,6 +218,46 @@ class PCOClient:
                 logger.warning("Failed to fetch plans for service type %s: %s", st_id, e)
         return plans
 
+    def test_connection(self) -> tuple:
+        """Test PCO credentials by fetching service types.
+        Returns (True, "Connected! Found N service types") or (False, "error message").
+        """
+        try:
+            types = self.get_service_types()
+            return (True, f"Connected! Found {len(types)} service types")
+        except Exception as e:
+            return (False, str(e))
+
+    def get_folders(self) -> List[Dict[str, str]]:
+        """Fetch all folders. Returns [{id, name}, ...]."""
+        data = self._get("/folders")
+        folders = []
+        for item in data.get('data', []):
+            item_id = item.get('id')
+            name = item.get('attributes', {}).get('name')
+            if not item_id or not name:
+                continue
+            folders.append({'id': item_id, 'name': name})
+        return folders
+
+    def get_team_positions_for_types(self, service_type_ids: List[str]) -> List[str]:
+        """Scan recent plans for unique team position names.
+        Returns a sorted deduplicated list of position strings.
+        """
+        positions = set()
+        for st_id in service_type_ids:
+            try:
+                plans = self.get_upcoming_services(st_id)
+                if plans:
+                    members = self.get_team_members(st_id, plans[0].id)
+                    for m in members:
+                        pos = m.get("position", "")
+                        if pos:
+                            positions.add(pos)
+            except Exception as e:
+                logger.warning("Failed to scan positions for type %s: %s", st_id, e)
+        return sorted(positions)
+
     def get_upcoming_services(self, service_type_id: str) -> List[Service]:
         """
         Fetches up to 3 upcoming plans for a service type (lightweight).

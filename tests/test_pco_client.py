@@ -613,3 +613,119 @@ class TestDownloadPhoto:
         client = _make_client()
         result = client.download_photo("https://example.com/photo.jpg", "/tmp/photo.jpg")
         assert result is False
+
+
+# ── test_connection() ──────────────────────────────────────────────
+
+
+class TestTestConnection:
+
+    @patch("src.pco_client.requests.get")
+    def test_success(self, mock_get):
+        mock_get.return_value = _mock_response(200, {
+            "data": [
+                {"id": "1", "attributes": {"name": "Sunday"}},
+                {"id": "2", "attributes": {"name": "Wednesday"}},
+            ]
+        })
+        client = _make_client()
+        ok, msg = client.test_connection()
+        assert ok is True
+        assert "2 service types" in msg
+
+    @patch("src.pco_client._time.sleep")
+    @patch("src.pco_client.requests.get")
+    def test_failure(self, mock_get, mock_sleep):
+        mock_get.side_effect = requests.exceptions.ConnectionError("refused")
+        client = _make_client()
+        ok, msg = client.test_connection()
+        assert ok is False
+        assert "refused" in msg
+
+
+# ── get_folders() ──────────────────────────────────────────────────
+
+
+class TestGetFolders:
+
+    @patch("src.pco_client.requests.get")
+    def test_parses_folders(self, mock_get):
+        mock_get.return_value = _mock_response(200, {
+            "data": [
+                {"id": "f1", "attributes": {"name": "Weekend Services"}},
+                {"id": "f2", "attributes": {"name": "Midweek"}},
+            ]
+        })
+        client = _make_client()
+        folders = client.get_folders()
+        assert len(folders) == 2
+        assert folders[0] == {"id": "f1", "name": "Weekend Services"}
+
+    @patch("src.pco_client.requests.get")
+    def test_empty(self, mock_get):
+        mock_get.return_value = _mock_response(200, {"data": []})
+        client = _make_client()
+        assert client.get_folders() == []
+
+
+# ── get_team_positions_for_types() ─────────────────────────────────
+
+
+class TestGetTeamPositionsForTypes:
+
+    @patch("src.pco_client.requests.get")
+    def test_collects_unique_positions(self, mock_get):
+        # First call: get_upcoming_services for st1
+        plans_resp = _mock_response(200, {
+            "data": [
+                {
+                    "id": "p1",
+                    "attributes": {"title": "Plan", "sort_date": "2026-02-08T10:00:00Z",
+                                    "series_title": None, "dates": "Feb 8",
+                                    "total_length": 3600},
+                    "relationships": {"plan_times": {"data": []}},
+                },
+            ],
+            "included": [],
+        })
+        # Second call: get_team_members for p1
+        team_resp = _mock_response(200, {
+            "data": [
+                {
+                    "id": "tm1", "type": "TeamMember",
+                    "attributes": {"name": "Alice", "team_position_name": "Vocalist",
+                                    "status": "C"},
+                    "relationships": {
+                        "person": {"data": {"type": "Person", "id": "p1"}},
+                        "team": {"data": {"type": "Team", "id": "t1"}},
+                    },
+                },
+                {
+                    "id": "tm2", "type": "TeamMember",
+                    "attributes": {"name": "Bob", "team_position_name": "Drums",
+                                    "status": "C"},
+                    "relationships": {
+                        "person": {"data": {"type": "Person", "id": "p2"}},
+                        "team": {"data": {"type": "Team", "id": "t1"}},
+                    },
+                },
+            ],
+            "included": [
+                {"type": "Person", "id": "p1", "attributes": {"photo_thumbnail_url": None}},
+                {"type": "Person", "id": "p2", "attributes": {"photo_thumbnail_url": None}},
+                {"type": "Team", "id": "t1", "attributes": {"name": "Worship"}},
+            ],
+            "links": {},
+        })
+        mock_get.side_effect = [plans_resp, team_resp]
+
+        client = _make_client()
+        positions = client.get_team_positions_for_types(["st1"])
+        assert positions == ["Drums", "Vocalist"]  # sorted
+
+    @patch("src.pco_client.requests.get")
+    def test_no_plans_returns_empty(self, mock_get):
+        mock_get.return_value = _mock_response(200, {"data": []})
+        client = _make_client()
+        positions = client.get_team_positions_for_types(["st1"])
+        assert positions == []

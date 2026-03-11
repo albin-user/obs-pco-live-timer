@@ -11,6 +11,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+gui = [
+    "PyGObject>=3.42.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-mock>=3.10.0",

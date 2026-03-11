@@ -111,13 +111,32 @@ vncpasswd
 sudo apt install python3 python3-venv python3-pip
 
 cd /home/obsuser/obs-pco-live-timer
+```
+
+**GUI mode** (recommended — system tray app with visual setup):
+```bash
+sudo apt install python3-gi gir1.2-appindicator3-0.1 gir1.2-gtk-3.0
+python3 -m venv --system-site-packages .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+The `--system-site-packages` flag gives the venv access to the GTK3/AppIndicator3 system bindings installed via apt. This is standard for GTK apps on Linux.
+
+**Headless mode** (systemd / no desktop):
+```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
 ### Step 6: Configure the PCO Timer
 
-Create `config.toml` with your PCO API credentials and OBS settings (see `config.example.toml`):
+**GUI mode:** Run `gui.py` — a system tray icon appears and the Settings window opens automatically on first run. Follow the built-in Help tab to enter credentials, select a folder, and configure team positions. No manual config editing needed.
+
+```bash
+.venv/bin/python gui.py
+```
+
+**Headless mode:** Create `config.toml` manually (see `config.example.toml`):
 ```toml
 [pco]
 app_id = "your_app_id"
@@ -171,6 +190,20 @@ X-GNOME-Autostart-enabled=true
 ```
 
 ### Auto-Start PCO Timer
+
+**GUI mode** (system tray icon + visual dashboard):
+
+Create `/home/obsuser/.config/autostart/pco-timer.desktop`:
+```ini
+[Desktop Entry]
+Type=Application
+Name=PCO Timer
+Exec=/home/obsuser/obs-pco-live-timer/.venv/bin/python /home/obsuser/obs-pco-live-timer/gui.py
+Path=/home/obsuser/obs-pco-live-timer
+X-GNOME-Autostart-enabled=true
+```
+
+**Headless mode** (no GUI, config.toml must exist):
 
 Create `/home/obsuser/.config/autostart/pco-timer.desktop`:
 ```ini
