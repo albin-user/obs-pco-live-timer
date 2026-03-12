@@ -8,12 +8,10 @@ dependencies = [
     "python-dateutil>=2.8.2",
     "tomli>=2.0.0",
     "obsws-python>=1.7.0",
+    "PyGObject>=3.42.0",
 ]
 
 [project.optional-dependencies]
-gui = [
-    "PyGObject>=3.42.0",
-]
 dev = [
     "pytest>=7.0.0",
     "pytest-mock>=3.10.0",

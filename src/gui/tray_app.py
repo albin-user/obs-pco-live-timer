@@ -11,7 +11,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("AppIndicator3", "0.1")
 from gi.repository import Gtk, GLib, AppIndicator3
 
-from .icons import generate_all_icons
+from .icons import generate_all_icons, generate_placeholder_png
 from .config_io import load_config, validate_config
 
 logger = logging.getLogger(__name__)
@@ -108,26 +108,32 @@ class TrayApp:
         from src.pco_client import PCOClient
         from src.manager import PlanManager
 
-        folder_id = config["pco"]["folder_id"]
+        mode = config["pco"].get("discovery_mode", "folder")
         client = PCOClient(
             app_id=config["pco"]["app_id"],
             secret=config["pco"]["secret"],
         )
 
-        # Discover service types from folder
+        # Discover service types
         try:
-            service_types = client.get_folder_service_types(folder_id)
+            if mode == "service_types":
+                service_type_ids = list(config["pco"].get("service_type_ids", []))
+            elif mode == "all":
+                service_types = client.get_service_types()
+                service_type_ids = [st["id"] for st in service_types]
+            else:  # folder
+                folder_id = config["pco"]["folder_id"]
+                service_types = client.get_folder_service_types(folder_id)
+                service_type_ids = [st["id"] for st in service_types]
         except Exception as e:
             logger.error("Failed to fetch service types: %s", e)
             self._set_icon("red")
             return
 
-        if not service_types:
-            logger.error("No service types found in folder %s", folder_id)
+        if not service_type_ids:
+            logger.error("No service types found")
             self._set_icon("red")
             return
-
-        service_type_ids = [st["id"] for st in service_types]
 
         # Team config
         team_config = config.get("team", {})
@@ -141,8 +147,7 @@ class TrayApp:
             os.makedirs(team_cache_dir, exist_ok=True)
             placeholder_photo_path = os.path.join(team_cache_dir, "placeholder_avatar.png")
             if not os.path.exists(placeholder_photo_path):
-                from run import _generate_placeholder_png
-                _generate_placeholder_png(placeholder_photo_path)
+                generate_placeholder_png(placeholder_photo_path)
 
         self.manager = PlanManager(
             client=client,

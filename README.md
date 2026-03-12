@@ -30,47 +30,30 @@ A real-time production timer system for Planning Center Online (PCO) designed fo
 ### 1. Install Dependencies
 
 ```bash
+# System GTK3 bindings (Xubuntu 24.04)
+sudo apt install python3-gi gir1.2-appindicator3-0.1 gir1.2-gtk-3.0
+
 cd obs-pco-live-timer
-python -m venv .venv
+python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure Credentials
+The `--system-site-packages` flag gives the venv access to the GTK3/AppIndicator3 system bindings installed via apt.
 
-Copy the example and fill in your credentials:
+### 2. Run
 
 ```bash
-cp config.example.toml config.toml
+.venv/bin/python gui.py
 ```
 
-Edit `config.toml`:
-
-```toml
-[pco]
-app_id = "your_pco_app_id"
-secret = "your_pco_secret"
-folder_id = "898807"  # Your PCO folder ID
-
-[obs]
-enabled = true
-host = "localhost"
-port = 4455
-password = ""
-update_interval_ms = 1000
-```
+A system tray icon appears and the Settings window opens automatically on first run. Enter your PCO credentials, select a folder, configure OBS WebSocket settings, and click Save. The engine starts immediately.
 
 **Get your credentials:** https://api.planningcenteronline.com/oauth/applications
 
 **Get folder IDs:** https://api.planningcenteronline.com/services/v2/folders
 
-### 3. Run
-
-```bash
-python run.py
-```
-
-### 4. Set Up OBS
+### 3. Set Up OBS
 
 1. Open OBS Studio (version 28+)
 2. Go to **Tools > WebSocket Server Settings** and enable WebSocket server (port 4455)
@@ -87,39 +70,13 @@ python run.py
    - `PCO Service End` — schedule status (red when behind)
    - `PCO Item Length` — current item's total length
 4. Position and resize each source wherever you want in your scene
-5. Run `python run.py` — sources update automatically
+5. Run `python gui.py` — sources update automatically
 
 You don't need all 11 sources — only create the ones you want. Missing sources are silently skipped.
 
 ## Configuration
 
-### config.toml
-
-```toml
-[pco]
-app_id = "your_pco_app_id_here"
-secret = "your_pco_secret_here"
-
-# Folder ID — service types are discovered automatically at startup
-# Get folder IDs from: https://api.planningcenteronline.com/services/v2/folders
-folder_id = "your_folder_id_here"
-
-[obs]
-enabled = true       # Set to false to disable OBS WebSocket push
-host = "localhost"   # OBS WebSocket host
-port = 4455          # OBS WebSocket port (default)
-password = ""        # Leave empty if no password set in OBS
-update_interval_ms = 1000  # Push updates every 1000ms
-```
-
-### Alternative: Environment Variables
-
-```bash
-export PCO_APP_ID=your_app_id
-export PCO_SECRET=your_secret
-export PCO_FOLDER_ID=your_folder_id
-python run.py
-```
+All configuration is managed through the GUI Settings window (right-click the tray icon > Show > Settings tab). Settings are saved to `config.toml` automatically — no manual editing needed.
 
 ## OBS WebSocket Text Sources — Complete Reference
 
@@ -183,8 +140,8 @@ The system monitors multiple service types and automatically selects the active 
 
 ```
 obs-pco-live-timer/
-├── run.py                  # Entry point
-├── config.toml             # Configuration (not committed)
+├── gui.py                  # Entry point (system tray app)
+├── config.toml             # Configuration (auto-managed by GUI)
 ├── config.example.toml     # Configuration template
 ├── requirements.txt        # Production dependencies
 ├── requirements-dev.txt    # Development dependencies
@@ -198,7 +155,13 @@ obs-pco-live-timer/
 │   ├── pco_client.py       # PCO API client (with retry/backoff)
 │   ├── timing_core.py      # Countdown calculations
 │   ├── models.py           # Data models (Service, Item, TimerResult)
-│   └── song_blocks.py      # Song block detection
+│   ├── song_blocks.py      # Song block detection
+│   └── gui/
+│       ├── __init__.py
+│       ├── tray_app.py     # AppIndicator3 tray icon + engine lifecycle
+│       ├── main_window.py  # GTK3 settings/status window
+│       ├── config_io.py    # Config load/save/validate
+│       └── icons.py        # Tray icon + placeholder PNG generation
 └── tests/
     ├── test_manager.py             # PlanManager state machine tests
     ├── test_timing_core.py         # Timer calculation tests
@@ -217,6 +180,14 @@ requests>=2.28.0          # HTTP client
 python-dateutil>=2.8.2    # Date parsing
 tomli>=2.0.0              # TOML config parsing
 obsws-python>=1.7.0       # OBS WebSocket client
+PyGObject>=3.42.0         # GTK3 bindings
+```
+
+System packages (Xubuntu 24.04):
+```
+python3-gi                    # PyGObject runtime
+gir1.2-appindicator3-0.1     # System tray support
+gir1.2-gtk-3.0               # GTK3 introspection data
 ```
 
 ## Development

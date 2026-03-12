@@ -113,7 +113,6 @@ sudo apt install python3 python3-venv python3-pip
 cd /home/obsuser/obs-pco-live-timer
 ```
 
-**GUI mode** (recommended — system tray app with visual setup):
 ```bash
 sudo apt install python3-gi gir1.2-appindicator3-0.1 gir1.2-gtk-3.0
 python3 -m venv --system-site-packages .venv
@@ -122,36 +121,12 @@ python3 -m venv --system-site-packages .venv
 
 The `--system-site-packages` flag gives the venv access to the GTK3/AppIndicator3 system bindings installed via apt. This is standard for GTK apps on Linux.
 
-**Headless mode** (systemd / no desktop):
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-```
-
 ### Step 6: Configure the PCO Timer
 
-**GUI mode:** Run `gui.py` — a system tray icon appears and the Settings window opens automatically on first run. Follow the built-in Help tab to enter credentials, select a folder, and configure team positions. No manual config editing needed.
+Run `gui.py` — a system tray icon appears and the Settings window opens automatically on first run. Follow the built-in Help tab to enter credentials, select a folder, and configure team positions. No manual config editing needed.
 
 ```bash
 .venv/bin/python gui.py
-```
-
-**Headless mode:** Create `config.toml` manually (see `config.example.toml`):
-```toml
-[pco]
-app_id = "your_app_id"
-secret = "your_secret"
-folder_id = "your_folder_id"
-```
-
-Verify `config.toml` has OBS WebSocket enabled:
-```toml
-[obs]
-enabled = true
-host = "localhost"
-port = 4455
-password = ""
-update_interval_ms = 1000
 ```
 
 ---
@@ -191,26 +166,12 @@ X-GNOME-Autostart-enabled=true
 
 ### Auto-Start PCO Timer
 
-**GUI mode** (system tray icon + visual dashboard):
-
 Create `/home/obsuser/.config/autostart/pco-timer.desktop`:
 ```ini
 [Desktop Entry]
 Type=Application
 Name=PCO Timer
 Exec=/home/obsuser/obs-pco-live-timer/.venv/bin/python /home/obsuser/obs-pco-live-timer/gui.py
-Path=/home/obsuser/obs-pco-live-timer
-X-GNOME-Autostart-enabled=true
-```
-
-**Headless mode** (no GUI, config.toml must exist):
-
-Create `/home/obsuser/.config/autostart/pco-timer.desktop`:
-```ini
-[Desktop Entry]
-Type=Application
-Name=PCO Timer
-Exec=/home/obsuser/obs-pco-live-timer/.venv/bin/python /home/obsuser/obs-pco-live-timer/run.py
 Path=/home/obsuser/obs-pco-live-timer
 X-GNOME-Autostart-enabled=true
 ```
@@ -431,7 +392,7 @@ When the NUC powers on, everything starts automatically:
 4. **Cursor hidden** — disappears after 5 seconds of inactivity
 5. **Notifications suppressed** — no popups over the projector
 6. **OBS launches** — fullscreen projector restores on the HDMI/TV display
-7. **PCO timer starts** — pushes countdown/titles to OBS text sources via WebSocket
+7. **PCO timer starts** (`gui.py`) — system tray icon + pushes countdown/titles to OBS text sources via WebSocket
 8. **RTSP feeds load in OBS** — camera views visible on the TV
 9. **Security updates applied** — silently in the background, no prompts
 

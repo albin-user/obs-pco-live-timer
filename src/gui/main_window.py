@@ -376,16 +376,45 @@ class MainWindow(Gtk.Window):
         self._pco_status_label.set_line_wrap(True)
         grid_pco.attach(self._pco_status_label, 1, 2, 2, 1)
 
+        # Discovery mode radio buttons
+        discovery_label = Gtk.Label(label="Discovery:", xalign=1, yalign=0)
+        grid_pco.attach(discovery_label, 0, 3, 1, 1)
+        discovery_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self._radio_all = Gtk.RadioButton.new_with_label(
+            None, "All service types (account-wide)"
+        )
+        self._radio_folder = Gtk.RadioButton.new_with_label_from_widget(
+            self._radio_all, "From a folder"
+        )
+        self._radio_specific = Gtk.RadioButton.new_with_label_from_widget(
+            self._radio_all, "Specific service types"
+        )
+        discovery_box.pack_start(self._radio_all, False, False, 0)
+        discovery_box.pack_start(self._radio_folder, False, False, 0)
+        discovery_box.pack_start(self._radio_specific, False, False, 0)
+        mode = config["pco"].get("discovery_mode", "folder")
+        if mode == "all":
+            self._radio_all.set_active(True)
+        elif mode == "service_types":
+            self._radio_specific.set_active(True)
+        else:
+            self._radio_folder.set_active(True)
+        self._radio_all.connect("toggled", self._on_discovery_mode_changed)
+        self._radio_folder.connect("toggled", self._on_discovery_mode_changed)
+        self._radio_specific.connect("toggled", self._on_discovery_mode_changed)
+        grid_pco.attach(discovery_box, 1, 3, 2, 1)
+
         # Folder
-        grid_pco.attach(Gtk.Label(label="Folder:", xalign=1), 0, 3, 1, 1)
+        self._folder_label = Gtk.Label(label="Folder:", xalign=1)
+        grid_pco.attach(self._folder_label, 0, 4, 1, 1)
         self._folder_combo = Gtk.ComboBoxText()
         self._folder_combo.set_hexpand(True)
         self._folder_combo.connect("changed", self._on_folder_changed)
-        grid_pco.attach(self._folder_combo, 1, 3, 1, 1)
+        grid_pco.attach(self._folder_combo, 1, 4, 1, 1)
 
-        btn_fetch_folders = Gtk.Button(label="Fetch Folders")
-        btn_fetch_folders.connect("clicked", self._on_fetch_folders)
-        grid_pco.attach(btn_fetch_folders, 2, 3, 1, 1)
+        self._btn_fetch_folders = Gtk.Button(label="Fetch Folders")
+        self._btn_fetch_folders.connect("clicked", self._on_fetch_folders)
+        grid_pco.attach(self._btn_fetch_folders, 2, 4, 1, 1)
 
         # Pre-populate folder_id if we have one
         self._folder_id_manual = config["pco"]["folder_id"]
@@ -393,11 +422,42 @@ class MainWindow(Gtk.Window):
             self._folder_combo.append(self._folder_id_manual, f"ID: {self._folder_id_manual}")
             self._folder_combo.set_active_id(self._folder_id_manual)
 
-        # Service types discovered (read-only display)
+        # Service type picker frame (for "service_types" mode)
+        self._st_picker_frame = Gtk.Frame(label="Select Service Types")
+        st_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        st_vbox.set_margin_start(4)
+        st_vbox.set_margin_end(4)
+        st_vbox.set_margin_top(4)
+        st_vbox.set_margin_bottom(4)
+        btn_fetch_st = Gtk.Button(label="Fetch Service Types")
+        btn_fetch_st.connect("clicked", self._on_fetch_service_types)
+        st_vbox.pack_start(btn_fetch_st, False, False, 0)
+        self._st_checkboxes_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        st_scroll = Gtk.ScrolledWindow()
+        st_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        st_scroll.set_size_request(-1, 120)
+        st_scroll.add(self._st_checkboxes_box)
+        st_vbox.pack_start(st_scroll, True, True, 0)
+        self._st_picker_frame.add(st_vbox)
+        grid_pco.attach(self._st_picker_frame, 0, 5, 3, 1)
+
+        # Pre-populate saved service type IDs
+        self._saved_service_type_ids = set(config["pco"].get("service_type_ids", []))
+        for st_id in sorted(self._saved_service_type_ids):
+            chk = Gtk.CheckButton(label=f"ID: {st_id}")
+            chk._service_type_id = st_id
+            chk.set_active(True)
+            self._st_checkboxes_box.pack_start(chk, False, False, 0)
+
+        # Apply initial sensitivity based on discovery mode
+        self._update_discovery_sensitivity()
+
+        # Service types discovered (read-only display, shown in folder mode)
         self._service_types_label = Gtk.Label(label="")
         self._service_types_label.set_xalign(0)
         self._service_types_label.set_line_wrap(True)
-        grid_pco.attach(self._service_types_label, 0, 4, 3, 1)
+        self._service_types_label.set_no_show_all(True)  # manage visibility explicitly
+        grid_pco.attach(self._service_types_label, 0, 6, 3, 1)
 
         vbox.pack_start(grid_pco, False, False, 0)
 
@@ -545,6 +605,31 @@ class MainWindow(Gtk.Window):
         row._position_name = position_name
         return row
 
+    # ── Settings: Discovery mode ───────────────────────────────────
+
+    def _on_discovery_mode_changed(self, _radio):
+        self._update_discovery_sensitivity()
+
+    def _get_discovery_mode(self) -> str:
+        if self._radio_all.get_active():
+            return "all"
+        if self._radio_specific.get_active():
+            return "service_types"
+        return "folder"
+
+    def _update_discovery_sensitivity(self):
+        """Enable/disable folder and service-type controls based on discovery mode."""
+        mode = self._get_discovery_mode()
+        folder_sensitive = (mode == "folder")
+        self._folder_label.set_sensitive(folder_sensitive)
+        self._folder_combo.set_sensitive(folder_sensitive)
+        self._btn_fetch_folders.set_sensitive(folder_sensitive)
+        self._st_picker_frame.set_sensitive(mode == "service_types")
+        if mode == "folder":
+            self._service_types_label.show()
+        else:
+            self._service_types_label.hide()
+
     # ── Settings: PCO test ──────────────────────────────────────────
 
     def _on_test_pco(self, _button):
@@ -614,6 +699,45 @@ class MainWindow(Gtk.Window):
 
         threading.Thread(target=_fetch, daemon=True).start()
 
+    # ── Settings: Service type picker ──────────────────────────────
+
+    def _on_fetch_service_types(self, _button):
+        app_id = self._entry_app_id.get_text().strip()
+        secret = self._entry_secret.get_text().strip()
+        self._pco_status_label.set_text("Fetching service types...")
+
+        def _fetch():
+            from src.pco_client import PCOClient
+            client = PCOClient(app_id=app_id, secret=secret)
+            try:
+                types = client.get_service_types()
+                GLib.idle_add(self._populate_service_type_checkboxes, types)
+            except Exception as e:
+                logger.warning("Failed to fetch service types: %s", e)
+                GLib.idle_add(
+                    self._pco_status_label.set_text, f"Error: {e}"
+                )
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _populate_service_type_checkboxes(self, types):
+        checked_ids = set(self._collect_service_type_ids())
+        for child in self._st_checkboxes_box.get_children():
+            self._st_checkboxes_box.remove(child)
+        for t in types:
+            chk = Gtk.CheckButton(label=f'{t["name"]} (ID: {t["id"]})')
+            chk._service_type_id = t["id"]
+            chk.set_active(t["id"] in checked_ids)
+            self._st_checkboxes_box.pack_start(chk, False, False, 0)
+        self._st_checkboxes_box.show_all()
+
+    def _collect_service_type_ids(self) -> list:
+        ids = []
+        for child in self._st_checkboxes_box.get_children():
+            if isinstance(child, Gtk.CheckButton) and child.get_active():
+                ids.append(child._service_type_id)
+        return ids
+
     # ── Settings: OBS test ──────────────────────────────────────────
 
     def _on_test_obs(self, _button):
@@ -646,16 +770,27 @@ class MainWindow(Gtk.Window):
     def _on_fetch_positions(self, _button):
         app_id = self._entry_app_id.get_text().strip()
         secret = self._entry_secret.get_text().strip()
+        mode = self._get_discovery_mode()
         folder_id = self._folder_combo.get_active_id()
-        if not folder_id:
+        if mode == "folder" and not folder_id:
+            return
+        # Capture IDs on main thread (GTK widgets not thread-safe)
+        st_ids = self._collect_service_type_ids() if mode == "service_types" else None
+        if mode == "service_types" and not st_ids:
             return
 
         def _fetch():
             from src.pco_client import PCOClient
             client = PCOClient(app_id=app_id, secret=secret)
             try:
-                types = client.get_folder_service_types(folder_id)
-                type_ids = [t["id"] for t in types]
+                if mode == "service_types":
+                    type_ids = st_ids
+                elif mode == "all":
+                    types = client.get_service_types()
+                    type_ids = [t["id"] for t in types]
+                else:  # folder
+                    types = client.get_folder_service_types(folder_id)
+                    type_ids = [t["id"] for t in types]
                 positions = client.get_team_positions_for_types(type_ids)
                 GLib.idle_add(self._populate_available_positions, positions)
             except Exception as e:
@@ -756,6 +891,8 @@ class MainWindow(Gtk.Window):
                 "app_id": self._entry_app_id.get_text().strip(),
                 "secret": self._entry_secret.get_text().strip(),
                 "folder_id": self._folder_combo.get_active_id() or "",
+                "discovery_mode": self._get_discovery_mode(),
+                "service_type_ids": self._collect_service_type_ids(),
             },
             "obs": {
                 "enabled": self._chk_obs_enabled.get_active(),
@@ -820,10 +957,12 @@ class MainWindow(Gtk.Window):
                 '"Connected! Found N service types".',
             ),
             (
-                "4. Select a Folder",
-                "Click <b>Fetch Folders</b> to load your PCO folders.\n"
-                "Select the folder that contains your worship service types.\n"
-                "The service types in that folder will be listed below.",
+                "4. Choose a discovery mode",
+                "Choose how the app finds your service types:\n"
+                "\u2022 <b>All service types</b> \u2014 scans every type in your account\n"
+                "\u2022 <b>From a folder</b> \u2014 click Fetch Folders and select a folder\n"
+                "\u2022 <b>Specific service types</b> \u2014 click Fetch Service Types and\n"
+                "  check the ones you want to monitor",
             ),
             (
                 "5. Configure OBS Connection",

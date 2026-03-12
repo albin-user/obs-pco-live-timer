@@ -14,6 +14,8 @@ class TestLoadConfig:
     def test_missing_file_returns_defaults(self, tmp_path):
         config = load_config(str(tmp_path / "nonexistent.toml"))
         assert config["pco"]["app_id"] == ""
+        assert config["pco"]["discovery_mode"] == "folder"
+        assert config["pco"]["service_type_ids"] == []
         assert config["obs"]["port"] == 4455
         assert config["team"]["slots"] == []
 
@@ -64,7 +66,8 @@ class TestSaveConfig:
     def test_roundtrip(self, tmp_path):
         p = str(tmp_path / "config.toml")
         original = {
-            "pco": {"app_id": "myid", "secret": "mysecret", "folder_id": "123"},
+            "pco": {"app_id": "myid", "secret": "mysecret", "folder_id": "123",
+                    "discovery_mode": "folder", "service_type_ids": []},
             "obs": {"enabled": True, "host": "localhost", "port": 4455,
                     "password": "pw", "update_interval_ms": 1000},
             "team": {"enabled": True, "photo_cache_dir": "", "placeholder_photo": "",
@@ -75,6 +78,37 @@ class TestSaveConfig:
         assert loaded["pco"] == original["pco"]
         assert loaded["obs"] == original["obs"]
         assert loaded["team"]["slots"] == original["team"]["slots"]
+
+    def test_roundtrip_all_mode(self, tmp_path):
+        p = str(tmp_path / "config.toml")
+        original = {
+            "pco": {"app_id": "myid", "secret": "mysecret", "folder_id": "",
+                    "discovery_mode": "all", "service_type_ids": []},
+            "obs": {"enabled": True, "host": "localhost", "port": 4455,
+                    "password": "", "update_interval_ms": 1000},
+            "team": {"enabled": True, "photo_cache_dir": "", "placeholder_photo": "",
+                     "slots": []},
+        }
+        save_config(p, original)
+        loaded = load_config(p)
+        assert loaded["pco"]["discovery_mode"] == "all"
+        assert loaded["pco"]["folder_id"] == ""
+
+    def test_roundtrip_service_types_mode(self, tmp_path):
+        p = str(tmp_path / "config.toml")
+        original = {
+            "pco": {"app_id": "myid", "secret": "mysecret", "folder_id": "",
+                    "discovery_mode": "service_types",
+                    "service_type_ids": ["111", "222"]},
+            "obs": {"enabled": True, "host": "localhost", "port": 4455,
+                    "password": "", "update_interval_ms": 1000},
+            "team": {"enabled": True, "photo_cache_dir": "", "placeholder_photo": "",
+                     "slots": []},
+        }
+        save_config(p, original)
+        loaded = load_config(p)
+        assert loaded["pco"]["discovery_mode"] == "service_types"
+        assert loaded["pco"]["service_type_ids"] == ["111", "222"]
 
     def test_creates_parent_dirs(self, tmp_path):
         p = str(tmp_path / "subdir" / "deep" / "config.toml")
@@ -95,6 +129,7 @@ class TestSaveConfig:
         config = load_config("/nonexistent")
         save_config(str(p), config)
         text = p.read_text()
+        assert "# Discovery mode" in text
         assert "# Folder ID" in text
         assert "# Leave empty if no password" in text
 
@@ -135,6 +170,15 @@ class TestValidateConfig:
         errors = validate_config(config)
         assert any("folder_id" in e for e in errors)
 
+    def test_folder_id_not_required_when_all_mode(self):
+        config = {
+            "pco": {"app_id": "abc", "secret": "xyz", "folder_id": "",
+                    "discovery_mode": "all"},
+            "obs": {"port": 4455},
+        }
+        errors = validate_config(config)
+        assert not any("folder_id" in e for e in errors)
+
     def test_invalid_port(self):
         config = {
             "pco": {"app_id": "abc", "secret": "xyz", "folder_id": "42"},
@@ -158,3 +202,83 @@ class TestValidateConfig:
         }
         errors = validate_config(config)
         assert len(errors) >= 3
+
+    def test_invalid_discovery_mode(self):
+        config = {
+            "pco": {"app_id": "abc", "secret": "xyz", "folder_id": "",
+                    "discovery_mode": "bogus"},
+            "obs": {"port": 4455},
+        }
+        errors = validate_config(config)
+        assert any("discovery_mode" in e for e in errors)
+
+    def test_service_types_mode_empty_list(self):
+        config = {
+            "pco": {"app_id": "abc", "secret": "xyz",
+                    "discovery_mode": "service_types", "service_type_ids": []},
+            "obs": {"port": 4455},
+        }
+        errors = validate_config(config)
+        assert any("service_type_ids" in e for e in errors)
+
+    def test_service_types_mode_valid(self):
+        config = {
+            "pco": {"app_id": "abc", "secret": "xyz",
+                    "discovery_mode": "service_types",
+                    "service_type_ids": ["111", "222"]},
+            "obs": {"port": 4455},
+        }
+        assert validate_config(config) == []
+
+    def test_all_mode_no_folder_needed(self):
+        config = {
+            "pco": {"app_id": "abc", "secret": "xyz", "folder_id": "",
+                    "discovery_mode": "all"},
+            "obs": {"port": 4455},
+        }
+        assert validate_config(config) == []
+
+
+# ── Migration tests ────────────────────────────────────────────────
+
+
+class TestMigration:
+
+    def test_legacy_scan_all_true_migrates_to_all(self, tmp_path):
+        p = tmp_path / "config.toml"
+        p.write_text(
+            '[pco]\napp_id = "a"\nsecret = "s"\n'
+            'scan_all_service_types = true\n'
+        )
+        config = load_config(str(p))
+        assert config["pco"]["discovery_mode"] == "all"
+
+    def test_legacy_scan_all_false_migrates_to_folder(self, tmp_path):
+        p = tmp_path / "config.toml"
+        p.write_text(
+            '[pco]\napp_id = "a"\nsecret = "s"\n'
+            'folder_id = "42"\nscan_all_service_types = false\n'
+        )
+        config = load_config(str(p))
+        assert config["pco"]["discovery_mode"] == "folder"
+
+    def test_new_format_not_migrated(self, tmp_path):
+        p = tmp_path / "config.toml"
+        p.write_text(
+            '[pco]\napp_id = "a"\nsecret = "s"\n'
+            'discovery_mode = "service_types"\n'
+            'service_type_ids = ["111"]\n'
+        )
+        config = load_config(str(p))
+        assert config["pco"]["discovery_mode"] == "service_types"
+        assert config["pco"]["service_type_ids"] == ["111"]
+
+    def test_loads_service_type_ids(self, tmp_path):
+        p = tmp_path / "config.toml"
+        p.write_text(
+            '[pco]\napp_id = "a"\nsecret = "s"\n'
+            'discovery_mode = "service_types"\n'
+            'service_type_ids = ["111", "222", "333"]\n'
+        )
+        config = load_config(str(p))
+        assert config["pco"]["service_type_ids"] == ["111", "222", "333"]

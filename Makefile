@@ -1,7 +1,7 @@
 .PHONY: run test install clean
 
 run:
-	.venv/bin/python run.py
+	.venv/bin/python gui.py
 
 test:
 	.venv/bin/python -m pytest tests/ -v

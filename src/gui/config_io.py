@@ -13,6 +13,8 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
         "app_id": "",
         "secret": "",
         "folder_id": "",
+        "discovery_mode": "folder",
+        "service_type_ids": [],
     },
     "obs": {
         "enabled": True,
@@ -54,6 +56,11 @@ def load_config(path: str) -> Dict[str, Any]:
                 if key in config[section]:
                     config[section][key] = value
 
+    # Migrate legacy scan_all_service_types → discovery_mode
+    pco_raw = toml_data.get("pco", {})
+    if "discovery_mode" not in pco_raw and "scan_all_service_types" in pco_raw:
+        config["pco"]["discovery_mode"] = "all" if pco_raw["scan_all_service_types"] else "folder"
+
     return config
 
 
@@ -64,9 +71,18 @@ def save_config(path: str, config: Dict[str, Any]) -> None:
         f'app_id = "{config["pco"]["app_id"]}"',
         f'secret = "{config["pco"]["secret"]}"',
         "",
-        "# Folder ID \u2014 service types are discovered automatically at startup",
+        '# Discovery mode: "all", "folder", or "service_types"',
+        '#   all           \u2014 scan every service type in the account',
+        '#   folder        \u2014 scan service types in a specific folder (requires folder_id)',
+        '#   service_types \u2014 use specific service type IDs (requires service_type_ids)',
+        f'discovery_mode = "{config["pco"]["discovery_mode"]}"',
+        "",
+        "# Folder ID \u2014 used when discovery_mode = \"folder\"",
         "# Get folder IDs from: https://api.planningcenteronline.com/services/v2/folders",
         f'folder_id = "{config["pco"]["folder_id"]}"',
+        "",
+        '# Specific service type IDs \u2014 used when discovery_mode = "service_types"',
+        _format_service_type_ids(config["pco"]["service_type_ids"]),
         "",
         "[obs]",
         f'enabled = {_toml_bool(config["obs"]["enabled"])}',
@@ -99,13 +115,22 @@ def validate_config(config: Dict[str, Any]) -> List[str]:
     app_id = pco.get("app_id", "")
     secret = pco.get("secret", "")
     folder_id = pco.get("folder_id", "")
+    mode = pco.get("discovery_mode", "folder")
 
     if not isinstance(app_id, str) or not app_id.strip():
         errors.append("Missing or empty PCO app_id")
     if not isinstance(secret, str) or not secret.strip():
         errors.append("Missing or empty PCO secret")
-    if not isinstance(folder_id, str) or not folder_id.strip():
-        errors.append("Missing or empty PCO folder_id")
+
+    if mode not in ("all", "folder", "service_types"):
+        errors.append(f'Invalid discovery_mode: "{mode}" (must be "all", "folder", or "service_types")')
+    elif mode == "folder":
+        if not isinstance(folder_id, str) or not folder_id.strip():
+            errors.append('Missing or empty PCO folder_id (required when discovery_mode = "folder")')
+    elif mode == "service_types":
+        ids = pco.get("service_type_ids", [])
+        if not isinstance(ids, list) or not ids:
+            errors.append('service_type_ids must be a non-empty list when discovery_mode = "service_types"')
 
     obs = config.get("obs", {})
     obs_port = obs.get("port", 4455)
@@ -117,6 +142,13 @@ def validate_config(config: Dict[str, Any]) -> List[str]:
 
 def _toml_bool(value: Any) -> str:
     return "true" if value else "false"
+
+
+def _format_service_type_ids(ids: list) -> str:
+    if not ids:
+        return "service_type_ids = []"
+    items = ",\n".join(f'    "{i}"' for i in ids)
+    return f"service_type_ids = [\n{items},\n]"
 
 
 def _format_slots(slots: List[str]) -> str:

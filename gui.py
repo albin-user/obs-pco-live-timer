@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-PCO Live Timer — System Tray GUI (Xubuntu / XFCE)
+PCO Live Timer — System Tray Application (Xubuntu / XFCE)
 
-Alternative entry point to run.py. Provides a system tray icon and
-configuration window instead of headless CLI operation.
+Provides a system tray icon with status indicator, configuration window,
+and manages the PCO polling engine and OBS WebSocket pusher.
 
 Requirements (Xubuntu 24.04):
     sudo apt install python3-gi gir1.2-appindicator3-0.1 gir1.2-gtk-3.0

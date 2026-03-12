@@ -2,9 +2,18 @@
 app_id = "your_pco_app_id_here"
 secret = "your_pco_secret_here"
 
-# Folder ID — service types are discovered automatically at startup
+# Discovery mode: "all", "folder", or "service_types"
+#   all           — scan every service type in the account
+#   folder        — scan service types in a specific folder (requires folder_id)
+#   service_types — use specific service type IDs (requires service_type_ids)
+discovery_mode = "folder"
+
+# Folder ID — used when discovery_mode = "folder"
 # Get folder IDs from: https://api.planningcenteronline.com/services/v2/folders
 folder_id = "your_folder_id_here"
+
+# Specific service type IDs — used when discovery_mode = "service_types"
+service_type_ids = []
 
 [obs]
 enabled = true

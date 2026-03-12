@@ -1,6 +1,6 @@
 """
-Generate colored circle PNG icons for tray states.
-Reuses the stdlib-only PNG generation pattern from run.py.
+Generate colored circle PNG icons for tray states and placeholder avatars.
+Uses stdlib-only PNG generation (struct + zlib).
 """
 import os
 import struct
@@ -74,3 +74,26 @@ def generate_all_icons(cache_dir: str) -> dict:
         icons[name] = path
     logger.info("Generated tray icons in %s", cache_dir)
     return icons
+
+
+def generate_placeholder_png(path: str, size: int = 128, rgb: tuple = (0x2D, 0x2D, 0x2D)):
+    """Generate a solid-color PNG placeholder avatar."""
+    raw_row = b"\x00" + bytes([rgb[0], rgb[1], rgb[2]]) * size
+    raw_data = raw_row * size
+
+    def _chunk(chunk_type: bytes, data: bytes) -> bytes:
+        c = chunk_type + data
+        crc = struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+        return struct.pack(">I", len(data)) + c + crc
+
+    ihdr_data = struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)
+    idat_data = zlib.compress(raw_data)
+
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(_chunk(b"IHDR", ihdr_data))
+        f.write(_chunk(b"IDAT", idat_data))
+        f.write(_chunk(b"IEND", b""))
+
+    logger.info("Generated placeholder avatar: %s", path)
