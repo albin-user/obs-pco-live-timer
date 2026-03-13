@@ -282,3 +282,60 @@ class TestMigration:
         )
         config = load_config(str(p))
         assert config["pco"]["service_type_ids"] == ["111", "222", "333"]
+
+
+# ── GUI section tests ──────────────────────────────────────────────
+
+
+class TestGuiSection:
+
+    def test_missing_gui_section_defaults_to_false(self, tmp_path):
+        p = tmp_path / "config.toml"
+        p.write_text('[pco]\napp_id = "a"\nsecret = "s"\n')
+        config = load_config(str(p))
+        assert config["gui"]["show_on_startup"] is False
+
+    def test_roundtrip_show_on_startup_true(self, tmp_path):
+        p = str(tmp_path / "config.toml")
+        original = {
+            "pco": {"app_id": "myid", "secret": "mysecret", "folder_id": "123",
+                    "discovery_mode": "folder", "service_type_ids": []},
+            "obs": {"enabled": True, "host": "localhost", "port": 4455,
+                    "password": "", "update_interval_ms": 1000},
+            "team": {"enabled": True, "photo_cache_dir": "", "placeholder_photo": "",
+                     "slots": []},
+            "gui": {"show_on_startup": True},
+        }
+        save_config(p, original)
+        loaded = load_config(p)
+        assert loaded["gui"]["show_on_startup"] is True
+
+    def test_roundtrip_show_on_startup_false(self, tmp_path):
+        p = str(tmp_path / "config.toml")
+        original = {
+            "pco": {"app_id": "myid", "secret": "mysecret", "folder_id": "123",
+                    "discovery_mode": "folder", "service_type_ids": []},
+            "obs": {"enabled": True, "host": "localhost", "port": 4455,
+                    "password": "", "update_interval_ms": 1000},
+            "team": {"enabled": True, "photo_cache_dir": "", "placeholder_photo": "",
+                     "slots": []},
+            "gui": {"show_on_startup": False},
+        }
+        save_config(p, original)
+        loaded = load_config(p)
+        assert loaded["gui"]["show_on_startup"] is False
+
+    def test_save_config_missing_gui_key(self, tmp_path):
+        """save_config handles a config dict with no 'gui' key."""
+        p = str(tmp_path / "config.toml")
+        config = {
+            "pco": {"app_id": "a", "secret": "s", "folder_id": "1",
+                    "discovery_mode": "folder", "service_type_ids": []},
+            "obs": {"enabled": False, "host": "localhost", "port": 4455,
+                    "password": "", "update_interval_ms": 1000},
+            "team": {"enabled": True, "photo_cache_dir": "", "placeholder_photo": "",
+                     "slots": []},
+        }
+        save_config(p, config)
+        loaded = load_config(p)
+        assert loaded["gui"]["show_on_startup"] is False

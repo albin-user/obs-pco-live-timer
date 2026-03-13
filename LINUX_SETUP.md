@@ -171,10 +171,18 @@ Create `/home/obsuser/.config/autostart/pco-timer.desktop`:
 [Desktop Entry]
 Type=Application
 Name=PCO Timer
-Exec=/home/obsuser/obs-pco-live-timer/.venv/bin/python /home/obsuser/obs-pco-live-timer/gui.py
+Exec=/home/obsuser/obs-pco-live-timer/run-with-restart.sh
 Path=/home/obsuser/obs-pco-live-timer
 X-GNOME-Autostart-enabled=true
 ```
+
+The `run-with-restart.sh` wrapper automatically restarts `gui.py` if it crashes. Behavior:
+- **First boot** — waits 5 seconds for XFCE panel and OBS to initialize
+- **Clean exit** (user clicks Quit) — does not restart
+- **Permanent failure** (missing GTK packages, exit code 2) — does not restart
+- **Crash** — restarts after a 3-second delay
+- **Rapid crash loop** (5 crashes within 60 seconds) — gives up to avoid infinite restarts
+- Restart events are logged to syslog (`journalctl -t pco-timer-restart`)
 
 ---
 
@@ -392,7 +400,7 @@ When the NUC powers on, everything starts automatically:
 4. **Cursor hidden** — disappears after 5 seconds of inactivity
 5. **Notifications suppressed** — no popups over the projector
 6. **OBS launches** — fullscreen projector restores on the HDMI/TV display
-7. **PCO timer starts** (`gui.py`) — system tray icon + pushes countdown/titles to OBS text sources via WebSocket
+7. **PCO timer starts** (`run-with-restart.sh` → `gui.py`) — system tray icon + pushes countdown/titles to OBS text sources via WebSocket, auto-restarts on crash
 8. **RTSP feeds load in OBS** — camera views visible on the TV
 9. **Security updates applied** — silently in the background, no prompts
 

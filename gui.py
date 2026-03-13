@@ -9,6 +9,7 @@ Requirements (Xubuntu 24.04):
     sudo apt install python3-gi gir1.2-appindicator3-0.1 gir1.2-gtk-3.0
 """
 import logging
+import signal
 import sys
 from pathlib import Path
 
@@ -36,14 +37,22 @@ def main():
             "gir1.2-appindicator3-0.1 gir1.2-gtk-3.0",
             e,
         )
-        sys.exit(1)
+        sys.exit(2)  # permanent failure — don't restart
 
-    from gi.repository import Gtk
+    from gi.repository import Gtk, GLib
 
     logger.info("Starting PCO Live Timer GUI")
     from src.gui.tray_app import TrayApp
 
     app = TrayApp()
+
+    def _on_sigterm(*_args):
+        logger.info("SIGTERM received — shutting down")
+        app.stop_engine()
+        Gtk.main_quit()
+        return GLib.SOURCE_REMOVE
+
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, _on_sigterm)
 
     try:
         Gtk.main()

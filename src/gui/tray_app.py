@@ -12,7 +12,7 @@ gi.require_version("AppIndicator3", "0.1")
 from gi.repository import Gtk, GLib, AppIndicator3
 
 from .icons import generate_all_icons, generate_placeholder_png
-from .config_io import load_config, validate_config
+from .config_io import load_config, save_config, validate_config
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +52,19 @@ class TrayApp:
     def _build_menu(self) -> Gtk.Menu:
         menu = Gtk.Menu()
 
-        item_show = Gtk.MenuItem(label="Show")
-        item_show.connect("activate", self._on_show)
-        menu.append(item_show)
+        self._chk_show_window = Gtk.CheckMenuItem(label="Show Window")
+        self._chk_show_window_handler = self._chk_show_window.connect(
+            "toggled", self._on_show_window_toggled
+        )
+        menu.append(self._chk_show_window)
+
+        self._chk_show_on_startup = Gtk.CheckMenuItem(label="Show on Startup")
+        show_on_startup = (self._config or {}).get("gui", {}).get("show_on_startup", False)
+        self._chk_show_on_startup.set_active(show_on_startup)
+        self._chk_startup_handler = self._chk_show_on_startup.connect(
+            "toggled", self._on_show_on_startup_toggled
+        )
+        menu.append(self._chk_show_on_startup)
 
         menu.append(Gtk.SeparatorMenuItem())
 
@@ -67,8 +77,23 @@ class TrayApp:
 
     # ── Menu handlers ───────────────────────────────────────────────
 
-    def _on_show(self, _widget):
-        self._ensure_window().present()
+    def _on_show_window_toggled(self, widget):
+        if widget.get_active():
+            self._ensure_window().present()
+        elif self._window:
+            self._window.hide()
+
+    def _on_show_on_startup_toggled(self, widget):
+        if self._config is None:
+            return
+        self._config.setdefault("gui", {})["show_on_startup"] = widget.get_active()
+        save_config(_CONFIG_PATH, self._config)
+
+    def _on_window_hidden(self, _window):
+        """Sync the Show Window checkbox when the window is hidden."""
+        self._chk_show_window.handler_block(self._chk_show_window_handler)
+        self._chk_show_window.set_active(False)
+        self._chk_show_window.handler_unblock(self._chk_show_window_handler)
 
     def _on_quit(self, _widget):
         logger.info("Quit requested from tray menu")
@@ -81,6 +106,7 @@ class TrayApp:
         if self._window is None:
             from .main_window import MainWindow
             self._window = MainWindow(self)
+            self._window.connect("hide", self._on_window_hidden)
         return self._window
 
     # ── Engine lifecycle ────────────────────────────────────────────
@@ -88,6 +114,13 @@ class TrayApp:
     def _load_and_start(self):
         """Load config and start engine if valid. Otherwise open Settings tab."""
         self._config = load_config(_CONFIG_PATH)
+
+        # Sync the Show on Startup checkbox now that config is loaded
+        show_on_startup = self._config.get("gui", {}).get("show_on_startup", False)
+        self._chk_show_on_startup.handler_block(self._chk_startup_handler)
+        self._chk_show_on_startup.set_active(show_on_startup)
+        self._chk_show_on_startup.handler_unblock(self._chk_startup_handler)
+
         errors = validate_config(self._config)
         if errors:
             logger.info("Config invalid or missing — opening Settings tab")
@@ -97,10 +130,20 @@ class TrayApp:
             return
         self._start_engine(self._config)
 
+        if show_on_startup:
+            GLib.idle_add(self._show_window_on_startup)
+
+    def _show_window_on_startup(self):
+        self._chk_show_window.set_active(True)
+        return False  # don't repeat
+
     def _show_settings_tab(self):
         win = self._ensure_window()
         win.show_settings_tab(first_run=True)
         win.present()
+        self._chk_show_window.handler_block(self._chk_show_window_handler)
+        self._chk_show_window.set_active(True)
+        self._chk_show_window.handler_unblock(self._chk_show_window_handler)
         return False  # don't repeat
 
     def _start_engine(self, config):

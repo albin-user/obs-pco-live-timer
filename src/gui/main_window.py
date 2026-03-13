@@ -907,6 +907,9 @@ class MainWindow(Gtk.Window):
                 "placeholder_photo": "",
                 "slots": slots,
             },
+            "gui": {
+                "show_on_startup": self.tray_app.config.get("gui", {}).get("show_on_startup", False),
+            },
         }
 
     def _refresh_obs_reference(self):

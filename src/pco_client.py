@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 _MAX_RETRIES = 3
 _BACKOFF_BASE = 2
 _BACKOFF_MAX = 30
+_MAX_PAGES = 50
 
 class PCOClient:
     def __init__(self, app_id: str, secret: str):
@@ -100,7 +101,9 @@ class PCOClient:
             all_data = []
             all_included = []
 
-            while endpoint:
+            for _page in range(_MAX_PAGES):
+                if not endpoint:
+                    break
                 raw = self._get(endpoint, params=params)
                 params = None  # only on first request
                 all_data.extend(raw.get("data", []))
@@ -362,7 +365,9 @@ class PCOClient:
         current_offset = 0
 
         # Handle pagination - keep fetching until no more pages
-        while endpoint:
+        for _page in range(_MAX_PAGES):
+            if not endpoint:
+                break
             data = self._get(endpoint, params={'per_page': 100} if first_request else None)
             first_request = False
 

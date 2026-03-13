@@ -29,6 +29,9 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
         "placeholder_photo": "",
         "slots": [],
     },
+    "gui": {
+        "show_on_startup": False,
+    },
 }
 
 
@@ -50,7 +53,7 @@ def load_config(path: str) -> Dict[str, Any]:
         return config
 
     # Merge loaded values over defaults
-    for section in ("pco", "obs", "team"):
+    for section in ("pco", "obs", "team", "gui"):
         if section in toml_data:
             for key, value in toml_data[section].items():
                 if key in config[section]:
@@ -68,38 +71,41 @@ def save_config(path: str, config: Dict[str, Any]) -> None:
     """Write config dict to a TOML file with comments matching config.example.toml style."""
     lines = [
         "[pco]",
-        f'app_id = "{config["pco"]["app_id"]}"',
-        f'secret = "{config["pco"]["secret"]}"',
+        f'app_id = "{_toml_escape(config["pco"]["app_id"])}"',
+        f'secret = "{_toml_escape(config["pco"]["secret"])}"',
         "",
         '# Discovery mode: "all", "folder", or "service_types"',
         '#   all           \u2014 scan every service type in the account',
         '#   folder        \u2014 scan service types in a specific folder (requires folder_id)',
         '#   service_types \u2014 use specific service type IDs (requires service_type_ids)',
-        f'discovery_mode = "{config["pco"]["discovery_mode"]}"',
+        f'discovery_mode = "{_toml_escape(config["pco"]["discovery_mode"])}"',
         "",
         "# Folder ID \u2014 used when discovery_mode = \"folder\"",
         "# Get folder IDs from: https://api.planningcenteronline.com/services/v2/folders",
-        f'folder_id = "{config["pco"]["folder_id"]}"',
+        f'folder_id = "{_toml_escape(config["pco"]["folder_id"])}"',
         "",
         '# Specific service type IDs \u2014 used when discovery_mode = "service_types"',
         _format_service_type_ids(config["pco"]["service_type_ids"]),
         "",
         "[obs]",
         f'enabled = {_toml_bool(config["obs"]["enabled"])}',
-        f'host = "{config["obs"]["host"]}"',
+        f'host = "{_toml_escape(config["obs"]["host"])}"',
         f'port = {config["obs"]["port"]}',
-        f'password = "{config["obs"]["password"]}"'
+        f'password = "{_toml_escape(config["obs"]["password"])}"'
         '            # Leave empty if no password set in OBS',
         f'update_interval_ms = {config["obs"]["update_interval_ms"]}'
         " # How often to push updates (milliseconds)",
         "",
         "[team]",
         f'enabled = {_toml_bool(config["team"]["enabled"])}',
-        f'photo_cache_dir = "{config["team"]["photo_cache_dir"]}"'
+        f'photo_cache_dir = "{_toml_escape(config["team"]["photo_cache_dir"])}"'
         "           # Default: ~/.cache/obs-pco-live-timer/photos/",
-        f'placeholder_photo = "{config["team"]["placeholder_photo"]}"'
+        f'placeholder_photo = "{_toml_escape(config["team"]["placeholder_photo"])}"'
         "         # Custom placeholder avatar (auto-generated if empty)",
         _format_slots(config["team"]["slots"]),
+        "",
+        "[gui]",
+        f'show_on_startup = {_toml_bool(config.get("gui", {}).get("show_on_startup", False))}',
     ]
 
     Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -138,6 +144,11 @@ def validate_config(config: Dict[str, Any]) -> List[str]:
         errors.append(f"Invalid OBS port: {obs_port} (must be 1-65535)")
 
     return errors
+
+
+def _toml_escape(s: str) -> str:
+    """Escape backslashes and double quotes for TOML basic strings."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _toml_bool(value: Any) -> str:

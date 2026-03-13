@@ -68,11 +68,15 @@ def generate_all_icons(cache_dir: str) -> dict:
     """Generate all tray state icons. Returns {state_name: path}."""
     os.makedirs(cache_dir, exist_ok=True)
     icons = {}
+    generated = 0
     for name, rgb in ICON_COLORS.items():
         path = os.path.join(cache_dir, f"tray_{name}.png")
-        generate_circle_png(path, rgb)
+        if not os.path.exists(path):
+            generate_circle_png(path, rgb)
+            generated += 1
         icons[name] = path
-    logger.info("Generated tray icons in %s", cache_dir)
+    if generated:
+        logger.info("Generated %d tray icon(s) in %s", generated, cache_dir)
     return icons
 
 

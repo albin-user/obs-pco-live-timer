@@ -141,6 +141,7 @@ The system monitors multiple service types and automatically selects the active 
 ```
 obs-pco-live-timer/
 ├── gui.py                  # Entry point (system tray app)
+├── run-with-restart.sh     # Restart wrapper for crash recovery
 ├── config.toml             # Configuration (auto-managed by GUI)
 ├── config.example.toml     # Configuration template
 ├── requirements.txt        # Production dependencies
@@ -155,12 +156,14 @@ obs-pco-live-timer/
 │   ├── pco_client.py       # PCO API client (with retry/backoff)
 │   ├── timing_core.py      # Countdown calculations
 │   ├── models.py           # Data models (Service, Item, TimerResult)
+│   ├── team_members.py     # Team member slot mapping for OBS
 │   ├── song_blocks.py      # Song block detection
 │   └── gui/
 │       ├── __init__.py
 │       ├── tray_app.py     # AppIndicator3 tray icon + engine lifecycle
 │       ├── main_window.py  # GTK3 settings/status window
 │       ├── config_io.py    # Config load/save/validate
+│       ├── obs_reference_panel.py  # OBS source reference UI panel
 │       └── icons.py        # Tray icon + placeholder PNG generation
 └── tests/
     ├── test_manager.py             # PlanManager state machine tests
